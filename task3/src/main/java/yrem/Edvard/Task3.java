@@ -6,66 +6,62 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.Map;
-import java.util.Scanner;
-
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 public class Task3 {
     public static void main(String[] args) {
-        Scanner scanner = new Scanner(System.in);
+        if (args.length < 3) {
+            System.err.println("Ошибка: укажите пути к файлам values.json, tests.json и report.json");
+            return;
+        }
 
-        // Ввод пути к файлам через консоль
-        System.out.print("Введите путь к файлу values.json: ");
-        String valuesFilePath = scanner.nextLine();
+        String valuesFilePath = args[0];
+        String testsFilePath = args[1];
+        String reportFilePath = args[2];
 
-        System.out.print("Введите путь к файлу tests.json: ");
-        String testsFilePath = scanner.nextLine();
-
-        System.out.print("Введите путь к файлу report.json (куда сохранить отчет): ");
-        String reportFilePath = scanner.nextLine();
-
-        scanner.close();
+        ObjectMapper objectMapper = new ObjectMapper();
 
         try {
-            ObjectMapper objectMapper = new ObjectMapper();
+            JsonNode valuesNode = objectMapper.readTree(new File(valuesFilePath));
+            JsonNode testsNode = objectMapper.readTree(new File(testsFilePath));
 
-            // Читаем values.json
-            JsonNode valuesRoot = objectMapper.readTree(new File(valuesFilePath));
-            Map<Integer, Integer> valuesMap = new HashMap<>();
+            // Преобразуем values.json в Map для быстрого поиска по ID
+            Map<String, String> valuesMap = StreamSupport.stream(valuesNode.spliterator(), false)
+                    .filter(node -> node.has("id") && node.has("value"))
+                    .collect(Collectors.toMap(
+                            node -> node.get("id").asText(),
+                            node -> node.get("value").asText()
+                    ));
 
-            for (JsonNode node : valuesRoot.get("values")) {
-                int id = node.get("id").asInt();
-                int value = node.get("value").asInt();
-                valuesMap.put(id, value);
-            }
+            // Заполняем отчет
+            updateReport(testsNode, valuesMap);
 
-            // Читаем tests.json
-            JsonNode testsRoot = objectMapper.readTree(new File(testsFilePath));
+            // Записываем результат
+            objectMapper.writerWithDefaultPrettyPrinter().writeValue(new File(reportFilePath), testsNode);
 
-            // Заполняем поле "value"
-            fillValues(testsRoot, valuesMap);
-
-            // Записываем в report.json
-            objectMapper.writeValue(new File(reportFilePath), testsRoot);
             System.out.println("Отчет успешно создан: " + reportFilePath);
-
         } catch (IOException e) {
-            System.err.println("Ошибка при обработке JSON-файлов: " + e.getMessage());
+            System.err.println("Ошибка при обработке файлов: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
-    private static void fillValues(JsonNode node, Map<Integer, Integer> valuesMap) {
+    private static void updateReport(JsonNode node, Map<String, String> valuesMap) {
         if (node.isObject()) {
             ObjectNode objectNode = (ObjectNode) node;
-            if (objectNode.has("id") && valuesMap.containsKey(objectNode.get("id").asInt())) {
-                objectNode.put("value", valuesMap.get(objectNode.get("id").asInt()));
+
+            JsonNode idNode = objectNode.get("id");
+            if (idNode != null && valuesMap.containsKey(idNode.asText())) {
+                objectNode.put("value", valuesMap.get(idNode.asText()));
             }
-            for (JsonNode child : node) {
-                fillValues(child, valuesMap);
+
+            for (JsonNode childNode : objectNode) {
+                updateReport(childNode, valuesMap);
             }
         } else if (node.isArray()) {
-            for (JsonNode child : node) {
-                fillValues(child, valuesMap);
+            for (JsonNode arrayNode : node) {
+                updateReport(arrayNode, valuesMap);
             }
         }
     }
